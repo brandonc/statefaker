@@ -11,7 +11,10 @@ import (
 
 func TestStateValid(t *testing.T) {
 	// Generate a fake state with some outputs and resources
-	state, err := NewFakeStateV4(3, 5)
+	state, err := NewFakeStateV4(
+		WithOutputs(3),
+		WithResources(5),
+	)
 	if err != nil {
 		t.Fatalf("failed to generate fake state: %v", err)
 	}
@@ -58,7 +61,7 @@ func TestStateValid(t *testing.T) {
 		uniqueResources[resourceName] = true
 	}
 
-	expectedResources := 5 // Based on our NewFakeStateV4(3, 5) call
+	expectedResources := 5 // Based on our WithResources(5) option
 	if len(uniqueResources) != expectedResources {
 		t.Errorf("expected %d unique resources, but got %d. Unique resources: %v",
 			expectedResources, len(uniqueResources), uniqueResources)

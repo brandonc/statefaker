@@ -4,10 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
-	"reflect"
 
 	"github.com/go-faker/faker/v4"
 )
+
+// Register custom faker providers for our specific fields. These are all used
+// by the InstanceV4 struct tags.
+func init() {
+	_ = faker.AddProvider("tfattributes", tfattributesProvider)
+	_ = faker.AddProvider("tfidentity", tfidentityProvider)
+	_ = faker.AddProvider("tfprivate", tfprivateProvider)
+	_ = faker.AddProvider("tfdependencies", tfdependenciesProvider)
+	_ = faker.AddProvider("tfemptystringslice", tfemptystringsliceProvider)
+}
 
 // Helper functions for generating realistic AWS data
 func generateAWSAccountID() string {
@@ -110,8 +119,8 @@ func getProviderFromResourceType(resourceType string) string {
 	return "aws"
 }
 
-// randomComplexOutput generates complex realistic output structures
-func randomComplexOutput(output *OutputV4) {
+// generateComplexOutput generates complex realistic output structures
+func generateComplexOutput(output *OutputV4) {
 	outputTypes := []func(*OutputV4){
 		generateS3BucketPolicyOutput,
 		generateUserMapOutput,
@@ -469,31 +478,32 @@ func generateRDSInstanceAttributes() map[string]any {
 	}
 }
 
-func randomOutput() (json.RawMessage, error) {
+func generateOutput() (json.RawMessage, error) {
 	var output OutputV4
 
 	// Half the time, generate a simple output
 	if rand.IntN(2) == 0 {
+		var outputType string
+		var outputValue any
+
 		switch rand.IntN(3) {
 		case 0:
-			typeJSON, _ := json.Marshal("string")
-			valueJSON, _ := json.Marshal(faker.Sentence())
-			output.Type = json.RawMessage(typeJSON)
-			output.Value = json.RawMessage(valueJSON)
+			outputType = "string"
+			outputValue = faker.Sentence()
 		case 1:
-			typeJSON, _ := json.Marshal("number")
-			valueJSON, _ := json.Marshal(faker.UnixTime())
-			output.Type = json.RawMessage(typeJSON)
-			output.Value = json.RawMessage(valueJSON)
+			outputType = "number"
+			outputValue = faker.UnixTime()
 		case 2:
-			typeJSON, _ := json.Marshal("bool")
-			valueJSON, _ := json.Marshal(rand.IntN(2) == 0)
-			output.Type = json.RawMessage(typeJSON)
-			output.Value = json.RawMessage(valueJSON)
+			outputType = "bool"
+			outputValue = rand.IntN(2) == 0
 		}
+		jsonType, _ := json.Marshal(outputType)
+		jsonValue, _ := json.Marshal(outputValue)
+		output.Type = json.RawMessage(jsonType)
+		output.Value = json.RawMessage(jsonValue)
 	} else {
-		// Generate a complex output
-		randomComplexOutput(&output)
+		// Half the time, generate a complex output
+		generateComplexOutput(&output)
 	}
 
 	b, err := json.Marshal(output)
@@ -502,27 +512,4 @@ func randomOutput() (json.RawMessage, error) {
 	}
 
 	return json.RawMessage(b), nil
-}
-
-func init() {
-	_ = faker.AddProvider("tfattributes", func(v reflect.Value) (interface{}, error) {
-		// Generate realistic resource attributes based on common AWS resource types
-		attributeGenerators := []func() map[string]any{
-			generateS3BucketAttributes,
-			generateIAMUserAttributes,
-			generateEC2InstanceAttributes,
-			generateLambdaFunctionAttributes,
-			generateRDSInstanceAttributes,
-		}
-
-		generator := attributeGenerators[rand.IntN(len(attributeGenerators))]
-		resourceAttributes := generator()
-
-		b, err := json.Marshal(resourceAttributes)
-		if err != nil {
-			return nil, err
-		}
-
-		return json.RawMessage(b), nil
-	})
 }
