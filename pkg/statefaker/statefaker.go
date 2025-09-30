@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/go-faker/faker/v4/pkg/options"
 )
 
 type StateV4 struct {
@@ -18,6 +19,7 @@ type StateV4 struct {
 }
 
 type ResourceV4 struct {
+	Module    string       `json:"module,omitempty"`
 	Mode      string       `json:"mode"`
 	Type      string       `json:"type"`
 	Name      string       `json:"name"`
@@ -26,6 +28,7 @@ type ResourceV4 struct {
 }
 
 type InstanceV4 struct {
+	IndexKey              string          `json:"index_key,omitempty"`
 	SchemaVersion         int             `json:"schema_version"`
 	Attributes            json.RawMessage `json:"attributes" faker:"tfattributes"`
 	SensitiveAttributes   []string        `json:"sensitive_attributes"`
@@ -42,7 +45,7 @@ type ExampleAttributes struct {
 	ARN  string `json:"arn"`
 }
 
-func NewStateV4(outputs, resources int) (*StateV4, error) {
+func NewFakeStateV4(outputs, resources int) (*StateV4, error) {
 	// Generate multiple realistic resources
 	var resourcesCollection []ResourceV4
 
@@ -53,64 +56,68 @@ func NewStateV4(outputs, resources int) (*StateV4, error) {
 			mode = "data"
 		}
 
-		var instance InstanceV4
-		err := faker.FakeData(&instance)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fake data for managed resource instance: %w", err)
+		resourceType := generateResourceType()
+
+		// 30% chance to have a module address
+		var moduleAddress string
+		if rand.IntN(10) < 3 {
+			moduleAddress = generateModuleAddress()
 		}
 
-		instance.SchemaVersion = 0
-		instance.IdentitySchemaVersion = 0
+		// Generate instances - 20% chance to have multiple instances (dozens)
+		var instances []InstanceV4
+		numInstances := 1
+		if rand.IntN(5) < 1 {
+			// Generate dozens of instances (12-48)
+			numInstances = rand.IntN(37) + 12
+		}
 
-		resourceType := generateResourceType()
+		for j := 0; j < numInstances; j++ {
+			var instance InstanceV4
+			err := faker.FakeData(&instance)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fake data for managed resource instance: %w", err)
+			}
+
+			instance.SchemaVersion = 0
+			instance.IdentitySchemaVersion = 0
+			instance.SensitiveAttributes = []string{}
+
+			// Set unique IndexKey for multiple instances
+			if numInstances > 1 {
+				instance.IndexKey = fmt.Sprintf("%s-%s-%d", faker.Word(options.WithGenerateUniqueValues(true)), faker.Word(), j)
+			} else {
+				instance.IndexKey = ""
+			}
+
+			instances = append(instances, instance)
+		}
+
+		faker.ResetUnique()
+
 		resource := ResourceV4{
 			Mode:      mode,
 			Type:      resourceType,
 			Name:      generateResourceName(),
-			Provider:  fmt.Sprintf("provider[\"registry.terraform.io/hashicorp/%s\"]", getProviderFromResourceType(resourceType)),
-			Instances: []InstanceV4{instance},
+			Module:    moduleAddress,
+			Provider:  generateProviderString(resourceType, moduleAddress),
+			Instances: instances,
 		}
 
 		resourcesCollection = append(resourcesCollection, resource)
 	}
 
-	// Generate 1-2 data resources
-	numDataResources := 1 + rand.IntN(2)
-	dataResourceTypes := []string{
-		"aws_ami", "aws_availability_zones", "aws_caller_identity",
-		"aws_region", "aws_s3_bucket", "aws_iam_policy_document",
-	}
-
-	for i := 0; i < numDataResources; i++ {
-		var instance InstanceV4
-		err := faker.FakeData(&instance)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fake data for data resource instance: %w", err)
-		}
-
-		instance.SchemaVersion = 0
-		instance.IdentitySchemaVersion = 0
-
-		resourceType := dataResourceTypes[rand.IntN(len(dataResourceTypes))]
-		resource := ResourceV4{
-			Mode:      "data",
-			Type:      resourceType,
-			Name:      generateResourceName(),
-			Provider:  fmt.Sprintf("provider[\"registry.terraform.io/hashicorp/%s\"]", getProviderFromResourceType(resourceType)),
-			Instances: []InstanceV4{instance},
-		}
-		resourcesCollection = append(resourcesCollection, resource)
-	}
+	faker.ResetUnique()
 
 	// Generate realistic outputs
 	outputsMap := make(map[string]json.RawMessage)
 
-	for i := 0; i < outputs; i++ {
+	for range outputs {
 		b, err := randomOutput()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate random output: %w", err)
 		}
-		outputsMap[faker.Word()] = b
+		outputsMap[fmt.Sprintf("%s_%s_%d", faker.Word(), faker.Word(), faker.UnixTime())] = b
 	}
 
 	state := &StateV4{

@@ -17,7 +17,9 @@ func init() {
 }
 
 func main() {
-	sf, err := statefaker.NewStateV4(numOutputs, numResources)
+	flag.Parse()
+
+	sf, err := statefaker.NewFakeStateV4(numOutputs, numResources)
 	if err != nil {
 		panic(err)
 	}

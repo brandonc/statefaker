@@ -33,7 +33,7 @@ func generateAccessKeyID() string {
 }
 
 func generateS3BucketName() string {
-	prefixes := []string{"turo", "company", "app", "data", "backup", "logs", "config"}
+	prefixes := []string{"hashicorp", "company", "app", "data", "backup", "logs", "config"}
 	suffixes := []string{"prod", "staging", "dev", "test", "ml", "analytics", "artifacts"}
 	middle := []string{"xyz", "main", "core", "service", "data", "bucket"}
 
@@ -64,8 +64,33 @@ func generateResourceType() string {
 }
 
 func generateResourceName() string {
-	names := []string{"main", "primary", "secondary", "backup", "test", "prod", "staging", "dev", "example"}
-	return names[rand.IntN(len(names))]
+	prefixes := []string{"app", "web", "api", "data", "ml", "core", "auth", "cache", "db", "svc"}
+	suffixes := []string{"prod", "staging", "dev", "test", "demo", "backup", "main", "primary", "secondary"}
+
+	// Use faker to generate a random word for the middle part
+	middlePart := faker.Word()
+
+	prefix := prefixes[rand.IntN(len(prefixes))]
+	suffix := suffixes[rand.IntN(len(suffixes))]
+
+	return fmt.Sprintf("%s-%s-%s-%d", prefix, middlePart, suffix, faker.UnixTime())
+}
+
+func generateModuleAddress() string {
+	modules := []string{
+		"hashicorp_cloud", "aws_infrastructure", "networking", "security",
+		"database", "monitoring", "backup", "analytics", "compute",
+		"storage", "identity", "logging", "encryption", "vpc_setup",
+	}
+	return "module." + modules[rand.IntN(len(modules))]
+}
+
+func generateProviderString(resourceType, moduleAddress string) string {
+	providerName := getProviderFromResourceType(resourceType)
+	if moduleAddress != "" {
+		return fmt.Sprintf("%s.provider[\"registry.terraform.io/hashicorp/%s\"]", moduleAddress, providerName)
+	}
+	return fmt.Sprintf("provider[\"registry.terraform.io/hashicorp/%s\"]", providerName)
 }
 
 func getProviderFromResourceType(resourceType string) string {
@@ -134,7 +159,10 @@ func generateS3BucketPolicyOutput(output *OutputV4) {
 	policyJSON, _ := json.Marshal(policy)
 	typeJSON, _ := json.Marshal("string")
 	output.Type = json.RawMessage(typeJSON)
-	output.Value = json.RawMessage(policyJSON)
+	// Convert the policy JSON to a JSON string (properly escaped)
+	policyString := string(policyJSON)
+	valueJSON, _ := json.Marshal(policyString)
+	output.Value = json.RawMessage(valueJSON)
 }
 
 func generateUserMapOutput(output *OutputV4) {
@@ -154,7 +182,38 @@ func generateUserMapOutput(output *OutputV4) {
 
 	typeStructure := []any{
 		"object",
-		map[string][]any{},
+		map[string][]any{
+			// This represents a map where each key is a username (string)
+			// and each value is a user object with the following structure
+		},
+	}
+
+	// Since we don't know the exact usernames at type definition time,
+	// we need to build the type structure dynamically based on the generated users
+	userObjectType := []any{
+		"object",
+		map[string]any{
+			"access_key_id":               "string",
+			"encrypted_secret_access_key": "string",
+			"pgp_key_name": []any{
+				"object",
+				map[string]string{
+					"name":              "string",
+					"public_key_base64": "string",
+				},
+			},
+		},
+	}
+
+	// Build the complete type structure with actual usernames
+	userTypeMap := make(map[string][]any)
+	for userName := range users {
+		userTypeMap[userName] = userObjectType
+	}
+
+	typeStructure = []any{
+		"object",
+		userTypeMap,
 	}
 	typeJSON, _ := json.Marshal(typeStructure)
 	valueJSON, _ := json.Marshal(users)
@@ -214,9 +273,9 @@ func generateNetworkConfigOutput(output *OutputV4) {
 		"object",
 		map[string]any{
 			"vpc_id":             "string",
-			"subnet_ids":         []string{"string"},
-			"security_group_ids": []string{"string"},
-			"availability_zones": []string{"string"},
+			"subnet_ids":         []string{"list", "string"},
+			"security_group_ids": []string{"list", "string"},
+			"availability_zones": []string{"list", "string"},
 			"cidr_block":         "string",
 		},
 	}
@@ -252,8 +311,23 @@ func generateSecurityGroupOutput(output *OutputV4) {
 			"id":          "string",
 			"name":        "string",
 			"description": "string",
-			"rules":       []string{"object"},
-			"vpc_id":      "string",
+			"rules": []any{
+				"list",
+				[]any{
+					"object",
+					map[string]any{
+						"type":      "string",
+						"protocol":  "string",
+						"from_port": "number",
+						"to_port":   "number",
+						"cidr_blocks": []string{
+							"list",
+							"string",
+						},
+					},
+				},
+			},
+			"vpc_id": "string",
 		},
 	}
 	typeJSON, _ := json.Marshal(typeStructure)
@@ -408,7 +482,7 @@ func randomOutput() (json.RawMessage, error) {
 			output.Value = json.RawMessage(valueJSON)
 		case 1:
 			typeJSON, _ := json.Marshal("number")
-			valueJSON, _ := json.Marshal(rand.IntN(1000))
+			valueJSON, _ := json.Marshal(faker.UnixTime())
 			output.Type = json.RawMessage(typeJSON)
 			output.Value = json.RawMessage(valueJSON)
 		case 2:
@@ -431,72 +505,6 @@ func randomOutput() (json.RawMessage, error) {
 }
 
 func init() {
-	_ = faker.AddProvider("tfresource_managed", func(v reflect.Value) (interface{}, error) {
-		var instance1 InstanceV4
-		err := faker.FakeData(&instance1)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fake data for instance1: %w", err)
-		}
-
-		instance1.SchemaVersion = 0
-		instance1.IdentitySchemaVersion = 0
-
-		resourceType := generateResourceType()
-		resourceName := generateResourceName()
-
-		resource := ResourceV4{
-			Mode: "managed",
-			Type: resourceType,
-			Name: resourceName,
-			Provider: fmt.Sprintf("provider[\"registry.terraform.io/hashicorp/%s\"]",
-				getProviderFromResourceType(resourceType)),
-			Instances: []InstanceV4{instance1},
-		}
-
-		b, err := json.Marshal(resource)
-		if err != nil {
-			return nil, err
-		}
-
-		return json.RawMessage(b), nil
-	})
-
-	_ = faker.AddProvider("tfresource_data", func(v reflect.Value) (interface{}, error) {
-		var instance1 InstanceV4
-		err := faker.FakeData(&instance1)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fake data for data instance: %w", err)
-		}
-
-		instance1.SchemaVersion = 0
-		instance1.IdentitySchemaVersion = 0
-
-		dataResourceTypes := []string{
-			"aws_ami", "aws_availability_zones", "aws_caller_identity",
-			"aws_region", "aws_s3_bucket", "aws_iam_policy_document",
-			"aws_vpc", "aws_subnet", "aws_security_group",
-		}
-
-		resourceType := dataResourceTypes[rand.IntN(len(dataResourceTypes))]
-		resourceName := generateResourceName()
-
-		resource := ResourceV4{
-			Mode: "data",
-			Type: resourceType,
-			Name: resourceName,
-			Provider: fmt.Sprintf("provider[\"registry.terraform.io/hashicorp/%s\"]",
-				getProviderFromResourceType(resourceType)),
-			Instances: []InstanceV4{instance1},
-		}
-
-		b, err := json.Marshal(resource)
-		if err != nil {
-			return nil, err
-		}
-
-		return json.RawMessage(b), nil
-	})
-
 	_ = faker.AddProvider("tfattributes", func(v reflect.Value) (interface{}, error) {
 		// Generate realistic resource attributes based on common AWS resource types
 		attributeGenerators := []func() map[string]any{
