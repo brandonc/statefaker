@@ -11,7 +11,6 @@ import (
 // Register custom faker providers for our specific fields. These are all used
 // by the InstanceV4 struct tags.
 func init() {
-	_ = faker.AddProvider("tfattributes", tfattributesProvider)
 	_ = faker.AddProvider("tfidentity", tfidentityProvider)
 	_ = faker.AddProvider("tfprivate", tfprivateProvider)
 	_ = faker.AddProvider("tfdependencies", tfdependenciesProvider)
@@ -65,7 +64,7 @@ func generateUserName() string {
 func generateResourceType() string {
 	resourceTypes := []string{
 		"aws_s3_bucket", "aws_iam_user", "aws_iam_role", "aws_lambda_function",
-		"aws_ec2_instance", "aws_rds_instance", "aws_dynamodb_table", "aws_vpc",
+		"aws_instance", "aws_db_instance", "aws_dynamodb_table", "aws_vpc",
 		"aws_security_group", "aws_route53_zone", "aws_cloudfront_distribution",
 		"aws_ecs_cluster", "aws_eks_cluster", "aws_api_gateway_rest_api",
 	}
@@ -183,7 +182,6 @@ func generateUserMapOutput(output *OutputV4) {
 			"access_key_id":               generateAccessKeyID(),
 			"encrypted_secret_access_key": faker.Password(),
 			"pgp_key_name": map[string]string{
-				"name":              "aws-pgp-v0-2020-07-08.pgp.base64",
 				"public_key_base64": faker.Password(), // Simplified for example
 			},
 		}
@@ -207,7 +205,6 @@ func generateUserMapOutput(output *OutputV4) {
 			"pgp_key_name": []any{
 				"object",
 				map[string]string{
-					"name":              "string",
 					"public_key_base64": "string",
 				},
 			},
@@ -308,7 +305,6 @@ func generateSecurityGroupOutput(output *OutputV4) {
 
 	config := map[string]any{
 		"id":          fmt.Sprintf("sg-%s", faker.UUIDDigit()),
-		"name":        fmt.Sprintf("%s-sg", generateResourceName()),
 		"description": faker.Sentence(),
 		"rules":       rules,
 		"vpc_id":      fmt.Sprintf("vpc-%s", faker.UUIDDigit()),
@@ -318,7 +314,6 @@ func generateSecurityGroupOutput(output *OutputV4) {
 		"object",
 		map[string]any{
 			"id":          "string",
-			"name":        "string",
 			"description": "string",
 			"rules": []any{
 				"list",
@@ -346,6 +341,19 @@ func generateSecurityGroupOutput(output *OutputV4) {
 }
 
 // Attribute generators for different resource types
+func generateAPIGatewayRestAPIAttributes() map[string]any {
+	apiID := fmt.Sprintf("%s-api", faker.UUIDDigit()[:10])
+	return map[string]any{
+		"id":          apiID,
+		"name":        generateResourceName(),
+		"description": faker.Sentence(),
+		"tags": map[string]string{
+			"Environment": "production",
+			"Service":     "api-gateway",
+		},
+	}
+}
+
 func generateS3BucketAttributes() map[string]any {
 	bucketName := generateS3BucketName()
 	return map[string]any{
@@ -354,29 +362,11 @@ func generateS3BucketAttributes() map[string]any {
 		"bucket":                      bucketName,
 		"bucket_domain_name":          fmt.Sprintf("%s.s3.amazonaws.com", bucketName),
 		"bucket_regional_domain_name": fmt.Sprintf("%s.s3.%s.amazonaws.com", bucketName, generateAWSRegion()),
+		"hosted_zone_id":              "Z3AQBSTJI090",
 		"region":                      generateAWSRegion(),
-		"versioning": []map[string]any{
-			{
-				"enabled":    rand.IntN(2) == 1,
-				"mfa_delete": false,
-			},
-		},
-		"server_side_encryption_configuration": []map[string]any{
-			{
-				"rule": []map[string]any{
-					{
-						"apply_server_side_encryption_by_default": []map[string]any{
-							{
-								"sse_algorithm": "AES256",
-							},
-						},
-					},
-				},
-			},
-		},
 		"tags": map[string]string{
-			"Environment": []string{"prod", "staging", "dev"}[rand.IntN(3)],
-			"Team":        []string{"data", "ml", "web", "mobile"}[rand.IntN(4)],
+			"Environment": "production",
+			"Team":        "devops",
 		},
 	}
 }
@@ -389,10 +379,9 @@ func generateIAMUserAttributes() map[string]any {
 		"name":                 userName,
 		"path":                 "/",
 		"permissions_boundary": nil,
-		"unique_id":            fmt.Sprintf("AIDA%s", faker.UUIDDigit()[:16]),
+		"force_destroy":        false,
 		"tags": map[string]string{
-			"Role": []string{"reader", "writer", "admin"}[rand.IntN(3)],
-			"Team": []string{"data", "ml", "security"}[rand.IntN(3)],
+			"ManagedBy": "terraform",
 		},
 	}
 }
@@ -402,7 +391,6 @@ func generateEC2InstanceAttributes() map[string]any {
 	return map[string]any{
 		"id":                     instanceID,
 		"arn":                    generateARN("ec2", fmt.Sprintf("instance/%s", instanceID)),
-		"instance_id":            instanceID,
 		"instance_type":          []string{"t3.micro", "t3.small", "m5.large", "c5.xlarge"}[rand.IntN(4)],
 		"ami":                    fmt.Sprintf("ami-%s", faker.UUIDDigit()[:17]),
 		"availability_zone":      generateAWSRegion() + []string{"a", "b", "c"}[rand.IntN(3)],
@@ -412,10 +400,9 @@ func generateEC2InstanceAttributes() map[string]any {
 		"vpc_security_group_ids": []string{fmt.Sprintf("sg-%s", faker.UUIDDigit()[:17])},
 		"key_name":               faker.Username(),
 		"monitoring":             rand.IntN(2) == 1,
-		"state":                  "running",
 		"tags": map[string]string{
-			"Name":        fmt.Sprintf("%s-instance", generateResourceName()),
-			"Environment": []string{"prod", "staging", "dev"}[rand.IntN(3)],
+			"Name":        generateResourceName(),
+			"Environment": "production",
 		},
 	}
 }
@@ -443,8 +430,7 @@ func generateLambdaFunctionAttributes() map[string]any {
 			},
 		},
 		"tags": map[string]string{
-			"Environment": []string{"prod", "staging", "dev"}[rand.IntN(3)],
-			"Team":        []string{"backend", "data", "ml"}[rand.IntN(3)],
+			"Project": "serverless",
 		},
 	}
 }
@@ -452,28 +438,23 @@ func generateLambdaFunctionAttributes() map[string]any {
 func generateRDSInstanceAttributes() map[string]any {
 	instanceID := fmt.Sprintf("%s-db", generateResourceName())
 	return map[string]any{
-		"id":                      instanceID,
-		"arn":                     generateARN("rds", fmt.Sprintf("db:%s", instanceID)),
-		"identifier":              instanceID,
-		"engine":                  []string{"postgres", "mysql", "mariadb"}[rand.IntN(3)],
-		"engine_version":          []string{"13.7", "14.2", "8.0.28"}[rand.IntN(3)],
-		"instance_class":          []string{"db.t3.micro", "db.t3.small", "db.r5.large"}[rand.IntN(3)],
-		"allocated_storage":       []int{20, 50, 100, 200}[rand.IntN(4)],
-		"storage_type":            "gp2",
-		"db_name":                 faker.Username(),
-		"username":                faker.Username(),
-		"port":                    []int{3306, 5432}[rand.IntN(2)],
-		"endpoint":                fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", instanceID, faker.UUIDDigit()[:10], generateAWSRegion()),
-		"hosted_zone_id":          fmt.Sprintf("Z%s", faker.UUIDDigit()[:13]),
-		"status":                  "available",
-		"multi_az":                rand.IntN(2) == 1,
-		"backup_retention_period": rand.IntN(35) + 1,
-		"backup_window":           "03:00-04:00",
-		"maintenance_window":      "sun:04:00-sun:05:00",
-		"storage_encrypted":       rand.IntN(2) == 1,
+		"id":                     instanceID,
+		"arn":                    generateARN("rds", fmt.Sprintf("db:%s", instanceID)),
+		"allocated_storage":      rand.IntN(100) + 20,
+		"storage_type":           "gp2",
+		"engine":                 []string{"mysql", "postgres", "mariadb"}[rand.IntN(3)],
+		"engine_version":         "14.1",
+		"instance_class":         "db.t3.micro",
+		"db_name":                instanceID, // Was "name", now deprecated/removed in v5
+		"username":               faker.Username(),
+		"password":               faker.Password(),
+		"port":                   5432,
+		"publicly_accessible":    false,
+		"vpc_security_group_ids": []string{fmt.Sprintf("sg-%s", faker.UUIDDigit()[:17])},
+		"db_subnet_group_name":   fmt.Sprintf("subnet-group-%s", faker.Word()),
 		"tags": map[string]string{
-			"Environment": []string{"prod", "staging", "dev"}[rand.IntN(3)],
-			"Team":        []string{"data", "backend", "analytics"}[rand.IntN(3)],
+			"Environment": "production",
+			"Database":    "primary",
 		},
 	}
 }

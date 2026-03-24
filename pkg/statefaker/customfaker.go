@@ -8,17 +8,57 @@ import (
 	"reflect"
 )
 
-func tfattributesProvider(v reflect.Value) (any, error) {
-	// Generate realistic resource attributes based on common AWS resource types
-	attributeGenerators := []func() map[string]any{
-		generateS3BucketAttributes,
-		generateIAMUserAttributes,
-		generateEC2InstanceAttributes,
-		generateLambdaFunctionAttributes,
-		generateRDSInstanceAttributes,
+func GenerateAttributes(resourceType, mode string) (json.RawMessage, error) {
+	// Generate realistic resource attributes based on resource type
+	var generator func() map[string]any
+
+	// If mode is 'data', we should ideally have specific generators for data sources
+	// For now, if it's a data source, fallback to minimal attributes to avoid
+	// "unsupported attribute" errors when managed resource attributes don't match data source schema.
+	if mode == "data" {
+		// Exception: Some data sources are safe or we want to test them specifically
+		// But generally, safer to fallback for data sources unless we implement specific logic
+		switch resourceType {
+		// aws_s3_bucket data source is quite compatible with our generator, except maybe tags?
+		// Let's be conservative and fallback for all data sources for now to fix the immediate issue.
+		default:
+			generator = func() map[string]any {
+				name := generateResourceName()
+				return map[string]any{
+					"id": name,
+					// Most data sources support 'id', or we can add 'arn' if we know it's safe
+					// But even 'arn' is not universal (e.g. aws_db_instance data source has db_instance_arn)
+				}
+			}
+		}
+	} else {
+		// Managed resources
+		switch resourceType {
+		case "aws_s3_bucket":
+			generator = generateS3BucketAttributes
+		case "aws_iam_user":
+			generator = generateIAMUserAttributes
+		case "aws_instance":
+			generator = generateEC2InstanceAttributes
+		case "aws_lambda_function":
+			generator = generateLambdaFunctionAttributes
+		case "aws_db_instance":
+			generator = generateRDSInstanceAttributes
+		case "aws_api_gateway_rest_api":
+			generator = generateAPIGatewayRestAPIAttributes
+		default:
+			// Fallback for types without specific generators
+			generator = func() map[string]any {
+				// Generate minimal valid attributes based on ID only
+				// Most resources have an ID, and extra unknown attributes can cause errors
+				name := generateResourceName()
+				return map[string]any{
+					"id": name,
+				}
+			}
+		}
 	}
 
-	generator := attributeGenerators[rand.IntN(len(attributeGenerators))]
 	resourceAttributes := generator()
 
 	b, err := json.Marshal(resourceAttributes)
@@ -30,23 +70,8 @@ func tfattributesProvider(v reflect.Value) (any, error) {
 }
 
 func tfidentityProvider(v reflect.Value) (any, error) {
-	// Most of the time, generate an empty identity
-	if rand.IntN(5) > 2 {
-		return json.RawMessage(""), nil
-	}
-
-	// Generate a simple identity structure
-	identity := map[string]any{
-		"arn":        generateARN("iam", fmt.Sprintf("user/%s", generateUserName())),
-		"account_id": generateAWSAccountID(),
-		"region":     generateAWSRegion(),
-	}
-
-	b, err := json.Marshal(identity)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(b), nil
+	// Always return nil for identity as most resources don't support it
+	return nil, nil
 }
 
 func tfprivateProvider(v reflect.Value) (any, error) {

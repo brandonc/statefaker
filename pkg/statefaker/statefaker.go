@@ -30,11 +30,11 @@ type ResourceV4 struct {
 
 type InstanceV4 struct {
 	IndexKey              string          `json:"index_key,omitempty"`
-	SchemaVersion         int             `json:"schema_version"`
-	Attributes            json.RawMessage `json:"attributes" faker:"tfattributes"`
+	SchemaVersion         int             `json:"schema_version" faker:"oneof: 0"`
+	Attributes            json.RawMessage `json:"attributes"`
 	SensitiveAttributes   []string        `json:"sensitive_attributes" faker:"tfemptystringslice"`
-	IdentitySchemaVersion int             `json:"identity_schema_version" faker:"oneof: 0,1"`
-	Identity              json.RawMessage `json:"identity,omitempty" faker:"tfidentity"`
+	IdentitySchemaVersion int             `json:"identity_schema_version" faker:"-"`
+	Identity              json.RawMessage `json:"identity,omitempty" faker:"-"`
 	Private               string          `json:"private,omitempty" faker:"tfprivate"`
 	Dependencies          []string        `json:"dependencies,omitempty" faker:"tfdependencies"`
 }
@@ -85,6 +85,32 @@ func NewFakeStateV4(opts ...Option) (*StateV4, error) {
 			err := faker.FakeData(&instance)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fake data for managed resource instance: %w", err)
+			}
+
+			// Manually generate attributes based on resource type
+			attrs, err := GenerateAttributes(resourceType, mode)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate attributes: %w", err)
+			}
+			instance.Attributes = attrs
+
+			// Fix schema version for specific resources
+			if mode == "managed" {
+				if resourceType == "aws_cloudfront_distribution" {
+					instance.SchemaVersion = 1
+				} else if resourceType == "aws_db_instance" {
+					instance.SchemaVersion = 2
+				} else if resourceType == "aws_dynamodb_table" {
+					instance.SchemaVersion = 1
+				} else if resourceType == "aws_eks_cluster" {
+					instance.SchemaVersion = 1
+				} else if resourceType == "aws_instance" {
+					instance.SchemaVersion = 2
+				} else if resourceType == "aws_security_group" {
+					instance.SchemaVersion = 1
+				} else if resourceType == "aws_vpc" {
+					instance.SchemaVersion = 1
+				}
 			}
 
 			// Set unique IndexKey for multiple instances
